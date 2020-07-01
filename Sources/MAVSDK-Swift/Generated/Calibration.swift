@@ -45,8 +45,7 @@ public class Calibration {
         public enum Result: Equatable {
             case unknown
             case success
-            case inProgress
-            case instruction
+            case next
             case failed
             case noSystem
             case connectionError
@@ -54,6 +53,7 @@ public class Calibration {
             case commandDenied
             case timeout
             case cancelled
+            case failedArmed
             case UNRECOGNIZED(Int)
 
             internal var rpcResult: Mavsdk_Rpc_Calibration_CalibrationResult.Result {
@@ -62,10 +62,8 @@ public class Calibration {
                     return .unknown
                 case .success:
                     return .success
-                case .inProgress:
-                    return .inProgress
-                case .instruction:
-                    return .instruction
+                case .next:
+                    return .next
                 case .failed:
                     return .failed
                 case .noSystem:
@@ -80,6 +78,8 @@ public class Calibration {
                     return .timeout
                 case .cancelled:
                     return .cancelled
+                case .failedArmed:
+                    return .failedArmed
                 case .UNRECOGNIZED(let i):
                     return .UNRECOGNIZED(i)
                 }
@@ -91,10 +91,8 @@ public class Calibration {
                     return .unknown
                 case .success:
                     return .success
-                case .inProgress:
-                    return .inProgress
-                case .instruction:
-                    return .instruction
+                case .next:
+                    return .next
                 case .failed:
                     return .failed
                 case .noSystem:
@@ -109,6 +107,8 @@ public class Calibration {
                     return .timeout
                 case .cancelled:
                     return .cancelled
+                case .failedArmed:
+                    return .failedArmed
                 case .UNRECOGNIZED(let i):
                     return .UNRECOGNIZED(i)
                 }
@@ -201,9 +201,9 @@ public class Calibration {
     }
 
 
-    public lazy var calibrateGyro: Observable<ProgressData> = createCalibrateGyroObservable()
 
-    private func createCalibrateGyroObservable() -> Observable<ProgressData> {
+
+    public func calibrateGyro() -> Observable<ProgressData> {
         return Observable.create { observer in
             let request = Mavsdk_Rpc_Calibration_SubscribeCalibrateGyroRequest()
 
@@ -232,7 +232,7 @@ public class Calibration {
                         switch (result.result) {
                         case .success:
                             observer.onCompleted()
-                        case .instruction, .inProgress:
+                        case .next:
                             observer.onNext(calibrateGyro)
                         default:
                             observer.onError(CalibrationError(code: result.result, description: result.resultStr))
@@ -261,9 +261,9 @@ public class Calibration {
         .share(replay: 1)
     }
 
-    public lazy var calibrateAccelerometer: Observable<ProgressData> = createCalibrateAccelerometerObservable()
 
-    private func createCalibrateAccelerometerObservable() -> Observable<ProgressData> {
+
+    public func calibrateAccelerometer() -> Observable<ProgressData> {
         return Observable.create { observer in
             let request = Mavsdk_Rpc_Calibration_SubscribeCalibrateAccelerometerRequest()
 
@@ -292,7 +292,7 @@ public class Calibration {
                         switch (result.result) {
                         case .success:
                             observer.onCompleted()
-                        case .instruction, .inProgress:
+                        case .next:
                             observer.onNext(calibrateAccelerometer)
                         default:
                             observer.onError(CalibrationError(code: result.result, description: result.resultStr))
@@ -321,9 +321,9 @@ public class Calibration {
         .share(replay: 1)
     }
 
-    public lazy var calibrateMagnetometer: Observable<ProgressData> = createCalibrateMagnetometerObservable()
 
-    private func createCalibrateMagnetometerObservable() -> Observable<ProgressData> {
+
+    public func calibrateMagnetometer() -> Observable<ProgressData> {
         return Observable.create { observer in
             let request = Mavsdk_Rpc_Calibration_SubscribeCalibrateMagnetometerRequest()
 
@@ -352,7 +352,7 @@ public class Calibration {
                         switch (result.result) {
                         case .success:
                             observer.onCompleted()
-                        case .instruction, .inProgress:
+                        case .next:
                             observer.onNext(calibrateMagnetometer)
                         default:
                             observer.onError(CalibrationError(code: result.result, description: result.resultStr))
@@ -381,9 +381,69 @@ public class Calibration {
         .share(replay: 1)
     }
 
-    public lazy var calibrateGimbalAccelerometer: Observable<ProgressData> = createCalibrateGimbalAccelerometerObservable()
 
-    private func createCalibrateGimbalAccelerometerObservable() -> Observable<ProgressData> {
+
+    public func calibrateLevelHorizon() -> Observable<ProgressData> {
+        return Observable.create { observer in
+            let request = Mavsdk_Rpc_Calibration_SubscribeCalibrateLevelHorizonRequest()
+
+            
+
+            do {
+                let call = try self.service.subscribeCalibrateLevelHorizon(request, completion: { (callResult) in
+                    if callResult.statusCode == .ok || callResult.statusCode == .cancelled {
+                        observer.onCompleted()
+                    } else {
+                        observer.onError(RuntimeCalibrationError(callResult.statusMessage!))
+                    }
+                })
+
+                let disposable = self.scheduler.schedule(0, action: { _ in
+                    
+                    while let response = try? call.receive() {
+                        
+                            
+                        let calibrateLevelHorizon = ProgressData.translateFromRpc(response.progressData)
+                        
+
+                        
+                        let result = CalibrationResult.translateFromRpc(response.calibrationResult)
+
+                        switch (result.result) {
+                        case .success:
+                            observer.onCompleted()
+                        case .next:
+                            observer.onNext(calibrateLevelHorizon)
+                        default:
+                            observer.onError(CalibrationError(code: result.result, description: result.resultStr))
+                        }
+                        
+                    }
+                    
+
+                    return Disposables.create()
+                })
+
+                return Disposables.create {
+                    call.cancel()
+                    disposable.dispose()
+                }
+            } catch {
+                observer.onError(error)
+                return Disposables.create()
+            }
+        }
+        .retryWhen { error in
+            error.map {
+                guard $0 is RuntimeCalibrationError else { throw $0 }
+            }
+        }
+        .share(replay: 1)
+    }
+
+
+
+    public func calibrateGimbalAccelerometer() -> Observable<ProgressData> {
         return Observable.create { observer in
             let request = Mavsdk_Rpc_Calibration_SubscribeCalibrateGimbalAccelerometerRequest()
 
@@ -412,7 +472,7 @@ public class Calibration {
                         switch (result.result) {
                         case .success:
                             observer.onCompleted()
-                        case .instruction, .inProgress:
+                        case .next:
                             observer.onNext(calibrateGimbalAccelerometer)
                         default:
                             observer.onError(CalibrationError(code: result.result, description: result.resultStr))
